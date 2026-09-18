@@ -28,6 +28,7 @@
 - [Javadoc 与 API 注释](15-Javadoc与API注释.md)
 - [Solon 多用户部署与模型凭证](16-Solon多用户部署与模型凭证.md)
 - [对齐审计（Java vs TypeScript RPC）](17-对齐审计.md)
+- [SSE 事件桥接](18-SSE事件桥接.md)
 
 ## 模块
 

@@ -17,7 +17,7 @@ mvn test               # 只编译并跑测试
 mvn -DskipTests package  # 跳过测试打包
 ```
 
-- 工程 groupId `works.earendil.pi`，artifactId `pi-java-sdk`，version `0.1.1`。
+- 工程 groupId `works.earendil.pi`，artifactId `pi-java-sdk`，version `0.1.2-SNAPSHOT`。
 - 测试全为单元测试（用 `FakePiProcess` 模拟子进程），**不依赖真实 PI CLI**，因此 `mvn test` 无网络/进程依赖即可运行。
 - `PiRpcCommandCoverageTest` 是一个覆盖率守卫测试，默认 `@Disabled` 跳过。
 
@@ -36,6 +36,7 @@ mvn -DskipTests package  # 跳过测试打包
 | `pool` | `PiClientPool`、`PiClientFactory`（会话池与故障恢复） |
 | `process` | `PiCliVersion`（版本探测）、`PiProcessExit` |
 | `session` | `SessionLister`（历史会话文件的本地只读访问，不启动 PI 子进程） |
+| `sse` | `SseEvent`、`SseEventMapper`、`SseFrameEncoder`、`SseBroadcaster`、`SseConnection`、`SseHttpServer`（PI 事件→SSE 桥接，零 Web 依赖） |
 | `rpc` | `PiRpcCommand`（枚举）、`PiRpcTypes`（类型化响应 record）、`PiResponse`、`PiRun` |
 
 关键类：

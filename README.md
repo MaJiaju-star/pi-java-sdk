@@ -27,7 +27,7 @@ mvn install
 <dependency>
     <groupId>works.earendil.pi</groupId>
     <artifactId>pi-java-sdk</artifactId>
-    <version>0.1.1</version>
+    <version>0.1.2-SNAPSHOT</version>
 </dependency>
 ```
 
@@ -85,6 +85,21 @@ subscription.close();
 ```
 
 监听器异常不会停止 stdout 协议读取。可以通过 `listenerErrorHandler(...)` 集中记录这些异常。
+
+## SSE 桥接
+
+`works.earendil.pi.sse` 把流式事件规范化为强类型实体并桥接到 Server-Sent Events，适合 Web 前端：
+
+```java
+try (PiClient client = PiClient.start(config);
+     SseBroadcaster broadcaster = SseBroadcaster.attach(client, SseBroadcasterConfig.builder().build());
+     SseHttpServer server = SseHttpServer.builder(broadcaster).port(8080).start()) {
+    System.out.println("SSE: http://localhost:8080" + server.eventsPath());
+    client.prompt("分析项目结构").settled().join();
+}
+```
+
+前端收到规范化事件（`event: text_delta`、`event: tool_end` 等），详见 [`docs/18-SSE事件桥接.md`](docs/18-SSE事件桥接.md)。不依赖 Web 框架，接入 Solon/Spring 只需实现 `SseConnection`。
 
 ## 运行中追加消息
 
