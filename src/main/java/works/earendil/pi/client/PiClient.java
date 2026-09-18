@@ -249,6 +249,19 @@ public final class PiClient implements AutoCloseable {
     }
 
     /**
+     * 发送纯文本 prompt，并指定 PI 正在流式运行时的处理方式。
+     *
+     * @param message 用户消息
+     * @param streamingBehavior 流式处理方式；{@code null} 表示使用 PI 默认行为
+     * @return 运行句柄
+     * @throws NullPointerException 当消息为 {@code null} 时
+     * @throws IllegalStateException 当上一轮 prompt 尚未 settled 时
+     */
+    public PiRun prompt(String message, PiStreamingBehavior streamingBehavior) {
+        return prompt(message, List.of(), streamingBehavior);
+    }
+
+    /**
      * 发送包含图片的 prompt。
      *
      * @param message 用户消息
@@ -560,6 +573,17 @@ public final class PiClient implements AutoCloseable {
                 "command", Objects.requireNonNull(command, "command"),
                 "excludeFromContext", excludeFromContext
         ), PiRpcTypes.BashResult.class);
+    }
+
+    /**
+     * 在 PI 工作目录执行 Bash 命令，并将命令和结果加入模型上下文。
+     *
+     * @param command shell 命令
+     * @return Bash 执行结果 future
+     * @throws NullPointerException 当命令为 {@code null} 时
+     */
+    public CompletableFuture<PiRpcTypes.BashResult> bash(String command) {
+        return bash(command, false);
     }
 
     /**
