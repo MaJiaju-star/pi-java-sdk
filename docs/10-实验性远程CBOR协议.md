@@ -8,7 +8,7 @@
 <dependency>
     <groupId>works.earendil.pi</groupId>
     <artifactId>pi-java-remote</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.1-SNAPSHOT</version>
 </dependency>
 ```
 

@@ -9,6 +9,7 @@
 | 模型、思考等级和队列模式 | 完整强类型方法 |
 | 压缩、自动重试和直接 Bash | 完整强类型方法与事件 |
 | 会话切换、分支、克隆、统计、导出和树 | 完整方法；开放消息内容保留 `JsonNode` |
+| 历史会话枚举 | RPC 协议无此命令；由 `SessionLister` 在文件系统层面提供（不启动 PI） |
 | 流式事件 | 全部已知顶层事件有 `PiTypedEvent` 视图，未知事件保留原始 JSON |
 | Extension UI | 请求解析、订阅以及 value、confirm、cancel 回复完整 |
 | 请求超时、stderr、退出通知和事件反压 | 完整 |
@@ -24,12 +25,15 @@ PI 的 `AgentMessage`、会话条目、工具详情和扩展数据是开放联�
 
 测试 `PiRpcCommandCoverageTest` 会读取 TypeScript 的 `rpc-types.ts`，比较 Java `PiRpcCommand` 枚举。当 PI 增加或移除命令时，构建会失败并提示同步 SDK。
 
+该测试用 `Assumptions.assumeTrue` 保护，只有本地存在 PI 源码（`packages/coding-agent/src/modes/rpc/rpc-types.ts`）时才实际运行；启用方法见 [17-对齐审计](17-对齐审计.md)。
+
 ## 已验证版本
 
 | 组件 | 版本 |
 | --- | --- |
 | JDK | 25.0.2 |
-| PI 仓库/CLI | 0.84.4 |
+| PI 仓库/CLI（运行时 `TESTED_VERSION`） | 0.84.4 |
+| PI 源码（协议对齐审计） | 0.85.1 |
 | Solon | 4.0.6 |
 | Jackson | 2.22.2 |
 
