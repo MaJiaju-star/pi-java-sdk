@@ -2,11 +2,11 @@
 
 按功能分类的完整中文文档见 [`docs/README.md`](docs/README.md)。本页保留 SDK 概览和最小示例。
 
-`pi-java-sdk` 是 PI Coding Agent RPC 模式的 JDK 25 客户端。它启动一个 `pi --mode rpc` 子进程，通过 stdin/stdout 上的 UTF-8 JSONL 协议发送命令并接收流式事件。
+`pi-java-sdk` 是 PI Coding Agent RPC 模式的 JDK 21 客户端。它启动一个 `pi --mode rpc` 子进程，通过 stdin/stdout 上的 UTF-8 JSONL 协议发送命令并接收流式事件。
 
 ## 环境要求
 
-- JDK 25
+- JDK 21（或更高）
 - Maven 3.9+
 - 已安装 PI CLI，或者能够提供 PI CLI 的 Node.js 启动命令
 - 已通过 PI 配置模型凭据

@@ -1,6 +1,6 @@
 # Javadoc 与 API 注释
 
-`pi-java-sdk` 和 `pi-java-remote` 的公开 API 使用中文 Javadoc。注释可以在 IDE 中直接查看，也可以通过 JDK 25 的 `javadoc` 工具生成 HTML。
+`pi-java-sdk` 和 `pi-java-remote` 的公开 API 使用中文 Javadoc。注释可以在 IDE 中直接查看，也可以通过 JDK 21 的 `javadoc` 工具生成 HTML。
 
 ## 注释范围
 
@@ -29,7 +29,7 @@ client.getState().whenComplete((state, error) -> {
 
 ## 严格校验
 
-源码使用 JDK 25 的以下检查策略验证：
+源码使用 JDK 21 的以下检查策略验证：
 
 ```text
 javadoc -Werror -Xdoclint:all ...

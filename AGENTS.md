@@ -1,13 +1,13 @@
 # AGENTS.md — pi-java-sdk
 
-PI Coding Agent 的 **RPC 模式 JDK 25 客户端**。本文件供 AI 编码代理（pi / Claude 等）在修改本仓库前读取，描述项目约定、命令与陷阱。
+PI Coding Agent 的 **RPC 模式 JDK 21 客户端**。本文件供 AI 编码代理（pi / Claude 等）在修改本仓库前读取，描述项目约定、命令与陷阱。
 
 ## 项目概览
 
 - 一个 `PiClient` 实例 = 一个 `pi --mode rpc` 子进程 + 一个活动会话，通过 stdin/stdout 上的 UTF-8 JSONL 协议通信。
 - 定位：**本地 Coding Agent 的 Java 客户端**，不是 PI Server 客户端（远程 CBOR 协议在独立的实验性模块 `pi-java-remote` 中，不在本仓库）。
 - 仅运行时依赖：`com.fasterxml.jackson.core:jackson-databind`（2.22.2）。测试依赖 JUnit 5（5.13.4）。
-- 要求：JDK 25（使用 record、sealed interface、virtual thread、switch 模式匹配等特性）、Maven 3.9+。
+- 要求：JDK 21+（使用 record、sealed interface、virtual thread、switch 模式匹配等特性）、Maven 3.9+。
 
 ## 常用命令
 
