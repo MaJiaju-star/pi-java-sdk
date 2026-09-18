@@ -17,7 +17,7 @@ mvn test               # 只编译并跑测试
 mvn -DskipTests package  # 跳过测试打包
 ```
 
-- 工程 groupId `works.earendil.pi`，artifactId `pi-java-sdk`，version `0.1.1-SNAPSHOT`。
+- 工程 groupId `works.earendil.pi`，artifactId `pi-java-sdk`，version `0.1.1`。
 - 测试全为单元测试（用 `FakePiProcess` 模拟子进程），**不依赖真实 PI CLI**，因此 `mvn test` 无网络/进程依赖即可运行。
 - `PiRpcCommandCoverageTest` 是一个覆盖率守卫测试，默认 `@Disabled` 跳过。
 

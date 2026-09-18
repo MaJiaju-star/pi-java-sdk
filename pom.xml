@@ -6,7 +6,7 @@
 
     <groupId>works.earendil.pi</groupId>
     <artifactId>pi-java-sdk</artifactId>
-    <version>0.1.1-SNAPSHOT</version>
+    <version>0.1.1</version>
     <packaging>jar</packaging>
 
     <name>Pi Java SDK</name>
