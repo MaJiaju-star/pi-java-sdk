@@ -2,6 +2,8 @@
 
 本文是 33 个 RPC 命令的完整参考，含参数、返回类型和 Java 方法签名。所有命令也可通过通用入口 `client.request(...)` 调用。
 
+> **拦截工具调用不在 RPC 协议内。** 这 33 个命令没有「注册钩子 / 审批 / 拒绝工具调用」的入口，工具事件（`tool_execution_start` 等）也只能看见、不能阻止，`abort` 只是竞态。要真正拦住工具调用，必须用 PI 扩展的 `tool_call` 钩子，再经 Extension UI 子协议把决策权交给 Java，完整做法见 [08-Extension-UI](08-Extension-UI.md)。
+
 ## 对话
 
 | 命令 | Java 方法 | 返回 |

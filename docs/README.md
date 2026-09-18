@@ -15,7 +15,7 @@
 - [模型与思考等级](05-模型与思考等级.md)
 - [队列、压缩、重试与 Bash](06-队列压缩重试与Bash.md)
 - [会话与持久化](07-会话与持久化.md)
-- [Extension UI](08-Extension-UI.md)
+- [Extension UI 与工具调用拦截](08-Extension-UI.md)
 - [会话池与故障恢复](09-会话池与故障恢复.md)
 
 ## 集成与运维
