@@ -149,6 +149,60 @@ events.addEventListener("agent_settled", () => markDone());
 | `GET` | `/events` | SSE 事件流，支持 `Last-Event-ID` 头或 `?lastEventId=` 参数重放 |
 | `POST` | `/ui-responses` | Extension UI 回复入口（需配置 `extensionUiResponder`） |
 
+## Java 后端消费事件实体
+
+`SseEvent` 不只给浏览器用。Java 后端调用 PI 后，可以用 `SseEventMapper` 把原始事件规范化为实体，再用 `switch` 模式匹配直接处理——不需要接任何 SSE 服务器。
+
+```java
+import works.earendil.pi.sse.SseEvent;
+import works.earendil.pi.sse.SseEventMapper;
+
+SseEventMapper mapper = new SseEventMapper(client.objectMapper());
+
+client.subscribe(raw -> {
+    SseEvent event = mapper.map(raw);          // PiEvent -> 规范化实体
+    switch (event) {
+        case SseEvent.TextDelta delta -> System.out.print(delta.text());
+        case SseEvent.ThinkingDelta d -> log.trace("思考: {}", d.text());
+        case SseEvent.ToolCallStart c -> log.info("调用 {}({})", c.toolName(), c.arguments());
+        case SseEvent.ToolStart tool -> beginTool(tool.toolCallId(), tool.toolName(), tool.args());
+        case SseEvent.ToolUpdate t -> progress(t.toolCallId(), t.partialResult());
+        case SseEvent.ToolEnd tool -> endTool(tool.toolCallId(), tool.result(), tool.error());
+        case SseEvent.MessageEnd end -> commit(end.message(), end.usage());
+        case SseEvent.MessageFailed f -> log.warn("消息失败: {} / {}", f.reason(), f.error());
+        case SseEvent.CompactionEnd c -> log.info("压缩 {} -> {} tokens", c.tokensBefore(), c.estimatedTokensAfter());
+        case SseEvent.RetryStart r -> log.warn("第 {}/{} 次重试，{}ms 后", r.attempt(), r.maxAttempts(), r.delayMillis());
+        case SseEvent.BashOutput b -> log.info("bash: {}", b.delta());
+        case SseEvent.ExtensionUi ui -> handleExtensionUi(ui.request());
+        case SseEvent.Error e -> log.warn("扩展错误: {}", e.message());
+        case SseEvent.AgentSettled s -> done();
+        default -> { /* 其余生命周期事件按需处理 */ }
+    }
+});
+
+client.prompt("分析项目结构").settled().join();   // settled() 才表示整轮真正结束
+```
+
+要点：
+
+- `map()` 分配单调递增的 `seq`，可用 `event.seq()` 做排序、断点续传或幂等去重。
+- 每个实体都带 `raw()`，需要协议未建模的字段时可直接读取。
+- `SseEvent` 是 sealed interface，**去掉 `default` 分支后编译器会强制旁尽所有事件**，升级 PI 后新增事件会编译报错，提醒同步处理。
+- `settled()` 才是真正的完成点（重试、压缩、后续队列均已结束），见 [03-对话与图片](03-对话与图片.md)。
+
+### 何时用 `SseEvent`，何时用 `PiTypedEvent`
+
+两套类型可共存，面向不同需求：
+
+| | `SseEvent`（本模块） | `PiTypedEvent`（[04-流式事件](04-流式事件.md)） |
+| --- | --- | --- |
+| 结构 | 扁平，一个语义事件一个 record | 忠于协议，如 `MessageUpdate` 内嵌 `assistantMessageEvent` |
+| 事件名 | 语义化（`text_delta`、`tool_start`、`message_end`） | 顶层协议名（`message_update`…） |
+| 序号 | 有 `seq()`，可用于重放/去重 | 无 |
+| 典型用途 | 业务处理、日志、转发给前端的 JSON | 需要协议全部原始字段、严格对应 PI 文档 |
+
+简单说：**`SseEvent` 面向业务，`PiTypedEvent` 面向协议**。两者都保留 `raw()`，可随时回退到原始 JSON。
+
 ## 接入其它 Web 框架
 
 `SseHttpServer` 只用于本地开发。生产环境建议实现 `SseConnection` 接入 Solon、Spring 等框架：
@@ -189,16 +243,17 @@ broadcaster.add(connection, lastEventId);
 4. **HTTP 分块编码**。原始 socket 读取时会看到 chunk 长度行，SSE 客户端（`EventSource`）会自动处理。
 5. **序号从 1 开始**，全局单调递增，跨重连保持（同一 `SseBroadcaster` 实例内）。
 
-## 独立使用映射器与编码器
+## 自定义 SSE 通道
 
-不需要 SSE 服务器时，也可以只用规范化能力：
+不用内置的 `SseHttpServer` 时，可以把规范化帧写进框架自己的 SSE 通道（实体消费用法见上一节「Java 后端消费事件实体」）：
 
 ```java
 SseEventMapper mapper = new SseEventMapper(client.objectMapper());
 SseFrameEncoder encoder = new SseFrameEncoder(client.objectMapper());
 
-client.subscribe(event -> {
-    SseEvent sse = mapper.map(event);
-    String frame = encoder.encode(sse);   // 直接写入任意 SSE 通道
+client.subscribe(raw -> {
+    SseEvent event = mapper.map(raw);
+    String frame = encoder.encode(event);
+    myFrameworkSseChannel.write(frame);   // 写入你自己的 SSE 响应
 });
 ```
