@@ -49,6 +49,7 @@ mvn -DskipTests package  # 跳过测试打包
 ## 编码约定
 
 - **公开 API 的 Javadoc 用中文**，且必须通过 `javadoc -Werror -Xdoclint:all`（缺 `@param`/`@return`/`@throws` 会失败）。每个 Java 包要有 `package-info.java` 说明职责。
+- **较长的方法（≥ 15 行或含多个阶段）用 `//1.` `//2.` 分步骤注释**，每步说明「为什么」而非复述代码；短方法与纯 getter 不强行套用。
 - 返回 `CompletableFuture` 的 RPC 方法**不同步抛服务端错误**：拒绝/超时/断连使 future 异常完成；方法 `@throws` 只列调用阶段同步异常。
 - 数据载体用 `record`；可扩展变体用 `sealed interface`（`PiTypedEvent`、`PiExtensionUiResponse`）。
 - 枚举与 JSON 协议字符串的映射用 `wireValue()` / `fromWireValue()`。

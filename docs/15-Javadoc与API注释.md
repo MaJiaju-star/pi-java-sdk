@@ -27,6 +27,51 @@ client.getState().whenComplete((state, error) -> {
 });
 ```
 
+## 方法内分步骤注释
+
+对**流程较长**的方法（大致 15 行以上，或包含多个明显阶段），在方法体内用 `//1.`、`//2.` 标注步骤：
+
+```java
+public static PiClient start(PiClientConfig config) throws IOException {
+    Objects.requireNonNull(config, "config");
+
+    //1. 拼装命令行：pi --mode rpc + 用户附加参数。
+    List<String> commandLine = new ArrayList<>(config.command());
+    commandLine.add("--mode");
+    commandLine.add("rpc");
+    commandLine.addAll(config.arguments());
+
+    //2. 启动子进程，并写入配置的工作目录与环境变量。
+    ProcessBuilder processBuilder = new ProcessBuilder(commandLine)
+            .directory(config.workingDirectory().toFile());
+    processBuilder.environment().putAll(config.environment());
+    Process process = processBuilder.start();
+
+    //3. 建立客户端并立即启动读取线程，避免 PI 因管道写满而阻塞。
+    PiClient client = new PiClient(config, new ObjectMapper(), process);
+    client.startReaders();
+
+    //4. 用 get_state 探测 RPC 就绪；失败时先关闭客户端，避免泄漏子进程。
+    try {
+        client.getState().get(config.startupTimeout().toMillis(), TimeUnit.MILLISECONDS);
+        return client;
+    } catch (...) {
+        client.close();
+        throw ...;
+    }
+}
+```
+
+约定：
+
+- **说明「为什么」，不要复述代码。** 「先启动替代实例再关闭旧实例，避免窗口期出现无可用客户端」比「启动客户端」有用。
+- **一个步骤对应一个语义阶段**，不按语句逐行编号。
+- **编号从 `1` 开始且连续**；中途有分支时仍按主流程编号。
+- **短方法、纯 getter 与 record 组件不需要步骤注释**，不强行套用。
+- 单点提醒可用不带编号的 `//` 注释（协议怪癖、回编译陷阱等）。
+
+目前采用此约定的典型方法：`PiClient.start`、`PiClient.request`、`PiClient.startReaders`、`PiClient.close`、`SessionLister.peek`、`SseBroadcaster.publish`、`SseHttpServer.Builder.handleEvents`、`StrictJsonlReader.read`、`PiCliVersion.detect`。
+
 ## 严格校验
 
 源码使用 JDK 21 的以下检查策略验证：

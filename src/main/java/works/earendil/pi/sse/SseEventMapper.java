@@ -38,7 +38,10 @@ public final class SseEventMapper {
      */
     public SseEvent map(PiEvent event) {
         Objects.requireNonNull(event, "event");
+
+        //1. 先分配序号，保证即使后续解码失败也不会出现序号空缺或重复。
         long seq = sequence.incrementAndGet();
+        //2. 复用 SDK 解码器得到强类型事件，再扁平化。
         return toSseEvent(event.typed(mapper), seq);
     }
 
@@ -52,7 +55,9 @@ public final class SseEventMapper {
     }
 
     private SseEvent toSseEvent(PiTypedEvent typed, long seq) {
+        //1. 原始 JSON 会被每个 SseEvent 原样带出，作为回退通道。
         JsonNode raw = typed.raw();
+        //2. 按强类型事件分派，把嵌套结构摊平为「一个语义事件一个 record」。
         return switch (typed) {
             case PiTypedEvent.Marker marker -> marker(marker, seq);
             case PiTypedEvent.AgentEnd agent -> new SseEvent.AgentEnd(
@@ -101,10 +106,12 @@ public final class SseEventMapper {
     }
 
     private SseEvent messageUpdate(PiTypedEvent.MessageUpdate update, long seq) {
+        //1. 增量事件在协议中是 message_update 与 assistantMessageEvent.type 的二级结构。
         JsonNode raw = update.raw();
         PiTypedEvent.AssistantMessageEvent event = update.assistantMessageEvent();
         String subtype = event.type() == null ? "" : event.type();
         JsonNode detail = raw.path("assistantMessageEvent");
+        //2. 按子类型映射为扁平事件；未识别的子类型降级为 MessageChunk 保留原始 JSON。
         return switch (subtype) {
             case "text_start" -> new SseEvent.TextStart(seq, event.contentIndex(), raw);
             case "text_delta" -> new SseEvent.TextDelta(seq, event.contentIndex(), event.delta(), raw);
@@ -143,9 +150,11 @@ public final class SseEventMapper {
     }
 
     private SseEvent compaction(PiTypedEvent.Compaction compaction, long seq) {
+        //1. 开始事件只有原因，直接透传。
         if (compaction.type() == works.earendil.pi.event.PiEventType.COMPACTION_START) {
             return new SseEvent.CompactionStart(seq, compaction.reason(), compaction.raw());
         }
+        //2. 结束事件的 result 可能缺失（中止或失败），此时 token 数用 0 占位。
         PiRpcTypes.CompactionResult result = compaction.result();
         return new SseEvent.CompactionEnd(
                 seq,
@@ -172,6 +181,7 @@ public final class SseEventMapper {
     }
 
     private PiRpcTypes.Usage usage(JsonNode message) {
+        // usage 只出现在对象形态下；缺失或类型不符时返回 null 而不是空对象。
         JsonNode node = message == null ? null : message.get("usage");
         if (node == null || !node.isObject()) {
             return null;

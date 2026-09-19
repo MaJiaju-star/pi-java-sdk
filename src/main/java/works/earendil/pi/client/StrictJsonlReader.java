@@ -15,6 +15,7 @@ final class StrictJsonlReader {
     }
 
     static void read(InputStream input, int maxLineBytes, Consumer<String> consumer) throws IOException {
+        //1. 逐块读取原始字节，自行按 0x0A 切分，以便同时实施大小限制与编码校验。
         ByteArrayOutputStream line = new ByteArrayOutputStream();
         byte[] chunk = new byte[8192];
         int read;
@@ -22,8 +23,10 @@ final class StrictJsonlReader {
             for (int i = 0; i < read; i++) {
                 int value = chunk[i] & 0xff;
                 if (value == '\n') {
+                    //2. 遇到换行即产出一条完整记录。
                     emit(line, consumer);
                 } else {
+                    //3. 超限立即报错，避免畸形输入耗尽内存。
                     if (line.size() >= maxLineBytes) {
                         throw new PiProtocolException("PI JSONL 单条记录超过限制: " + maxLineBytes + " bytes");
                     }
@@ -31,18 +34,21 @@ final class StrictJsonlReader {
                 }
             }
         }
+        //4. 流以无换行结尾时，仍要产出最后一条记录。
         if (line.size() > 0) {
             emit(line, consumer);
         }
     }
 
     private static void emit(ByteArrayOutputStream line, Consumer<String> consumer) {
+        //1. 取出并重置缓冲，顺带去掉可选的 \r。
         byte[] bytes = line.toByteArray();
         line.reset();
         int length = bytes.length;
         if (length > 0 && bytes[length - 1] == '\r') {
             length--;
         }
+        //2. 严格 UTF-8 解码；非法字节直接报错，而不是静默替换为 U+FFFD。
         try {
             String value = StandardCharsets.UTF_8.newDecoder()
                     .onMalformedInput(CodingErrorAction.REPORT)

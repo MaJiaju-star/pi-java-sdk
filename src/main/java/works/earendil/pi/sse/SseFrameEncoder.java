@@ -44,6 +44,8 @@ public final class SseFrameEncoder {
      */
     public String encode(SseEvent event) {
         Objects.requireNonNull(event, "event");
+
+        //1. 序列化事件为 JSON；每个 record 组件就是一个 payload 字段。
         ObjectNode node = mapper.valueToTree(event);
         node.put("type", event.type());
         node.put("seq", event.seq());
@@ -55,6 +57,7 @@ public final class SseFrameEncoder {
             throw new IllegalStateException("无法序列化 SSE 事件: " + event.type(), error);
         }
 
+        //2. 组装帧：id 供断线回放，event 供前端路由，data 为紧凑 JSON。
         StringBuilder frame = new StringBuilder(64 + json.length());
         frame.append("id: ").append(event.seq()).append('\n');
         frame.append("event: ").append(event.type()).append('\n');
@@ -73,6 +76,7 @@ public final class SseFrameEncoder {
     }
 
     private static void appendData(StringBuilder frame, String json) {
+        // JSON 可能含换行（例如工具结果），每个物理行都要单独加 data: 前缀。
         for (String line : json.split("\n", -1)) {
             frame.append("data: ").append(line).append('\n');
         }

@@ -50,12 +50,16 @@ public record PiCliVersion(String raw, Integer major, Integer minor, Integer pat
     public static PiCliVersion detect(PiClientConfig config, Duration timeout) throws IOException {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(timeout, "timeout");
+
+        //1. 拼装 pi --version 命令，并合并 stderr 到 stdout 以免丢失诊断信息。
         ArrayList<String> command = new ArrayList<>(config.command());
         command.add("--version");
         ProcessBuilder builder = new ProcessBuilder(command)
                 .directory(config.workingDirectory().toFile())
                 .redirectErrorStream(true);
         builder.environment().putAll(config.environment());
+
+        //2. 启动进程并在超时内等待；超时或被中断都强制终止子进程。
         Process process = builder.start();
         try {
             if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
@@ -67,10 +71,13 @@ public record PiCliVersion(String raw, Integer major, Integer minor, Integer pat
             process.destroyForcibly();
             throw new PiProcessException("探测 PI CLI 版本时线程被中断", null, "");
         }
+        //3. 读取输出；非零退出码视为探测失败。
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).strip();
         if (process.exitValue() != 0) {
             throw new PiProcessException("PI CLI 版本命令失败", process.exitValue(), output);
         }
+
+        //4. 用正则抓取语义版本；抓不到时三个版本号留空，仍保留原始输出。
         Matcher matcher = VERSION.matcher(output);
         return matcher.find()
                 ? new PiCliVersion(output, Integer.valueOf(matcher.group(1)), Integer.valueOf(matcher.group(2)),

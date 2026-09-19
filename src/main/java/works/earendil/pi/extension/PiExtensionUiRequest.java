@@ -92,6 +92,7 @@ public record PiExtensionUiRequest(
      * @return 强类型 UI 请求
      */
     public static PiExtensionUiRequest from(JsonNode raw) {
+        //1. 把协议字符串方法名映射为强类型枚举；未知方法归入 UNKNOWN，原始字段仍保留在 raw()。
         String methodValue = raw.path("method").asText();
         Method method = switch (methodValue) {
             case "select" -> Method.SELECT;
@@ -105,6 +106,7 @@ public record PiExtensionUiRequest(
             case "set_editor_text" -> Method.SET_EDITOR_TEXT;
             default -> Method.UNKNOWN;
         };
+        //2. 其余字段统一按可选文本读取；缺失或类型不符时为 null。
         return new PiExtensionUiRequest(
                 text(raw, "id"), method, text(raw, "title"), strings(raw.get("options")),
                 raw.has("timeout") ? raw.path("timeout").longValue() : null,

@@ -90,18 +90,24 @@ public final class PiClient implements AutoCloseable {
      */
     public static PiClient start(PiClientConfig config) throws IOException {
         Objects.requireNonNull(config, "config");
+
+        //1. 拼装命令行：pi --mode rpc + 用户附加参数。
         List<String> commandLine = new ArrayList<>(config.command());
         commandLine.add("--mode");
         commandLine.add("rpc");
         commandLine.addAll(config.arguments());
 
+        //2. 启动子进程，并写入配置的工作目录与环境变量。
         ProcessBuilder processBuilder = new ProcessBuilder(commandLine)
                 .directory(config.workingDirectory().toFile());
         processBuilder.environment().putAll(config.environment());
         Process process = processBuilder.start();
+
+        //3. 建立客户端并立即启动读取线程，避免 PI 因管道写满而阻塞。
         PiClient client = new PiClient(config, new ObjectMapper(), process);
         client.startReaders();
 
+        //4. 用 get_state 探测 RPC 就绪；失败时先关闭客户端，避免泄漏子进程。
         try {
             client.getState().get(config.startupTimeout().toMillis(), TimeUnit.MILLISECONDS);
             return client;
@@ -286,11 +292,14 @@ public final class PiClient implements AutoCloseable {
      */
     public PiRun prompt(String message, List<PiImage> images, PiStreamingBehavior streamingBehavior) {
         Objects.requireNonNull(message, "message");
+
+        //1. 抢占运行位：同一客户端同一时刻只允许一个未 settled 的运行。
         CompletableFuture<PiEvent> settled = new CompletableFuture<>();
         if (!activeRun.compareAndSet(null, settled)) {
             throw new IllegalStateException("PI 当前仍在运行；请使用 steer() 或 followUp()");
         }
 
+        //2. 组装参数：消息、可选图片、可选流式行为。
         Map<String, Object> arguments = new LinkedHashMap<>();
         arguments.put("message", message);
         if (images != null && !images.isEmpty()) {
@@ -304,6 +313,7 @@ public final class PiClient implements AutoCloseable {
             arguments.put("streamingBehavior", streamingBehavior.wireValue());
         }
 
+        //3. 发送命令；若未被 PI 接收，则释放运行位并让 settled 异常完成。
         CompletableFuture<PiResponse> accepted = request("prompt", arguments);
         accepted.whenComplete((response, error) -> {
             if (error != null) {
@@ -311,6 +321,8 @@ public final class PiClient implements AutoCloseable {
                 activeRun.compareAndSet(settled, null);
             }
         });
+
+        //4. 返回「已接收」与「已稳定」两阶段句柄。
         return new PiRun(accepted, settled);
     }
 
@@ -804,11 +816,14 @@ public final class PiClient implements AutoCloseable {
      * @throws PiProcessException 当客户端已关闭时
      */
     public CompletableFuture<PiResponse> request(ObjectNode command, Duration timeout) {
+        //1. 前置校验：客户端可用、超时合法。
         ensureOpen();
         Objects.requireNonNull(timeout, "timeout");
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("timeout 必须大于 0");
         }
+
+        //2. 复制命令体并补全请求 ID；调用方的节点不会被修改。
         ObjectNode body = command.deepCopy();
         String commandType = body.path("type").asText();
         if (commandType.isBlank()) {
@@ -816,15 +831,21 @@ public final class PiClient implements AutoCloseable {
         }
         String id = UUID.randomUUID().toString();
         body.put("id", id);
+
+        //3. 登记待完成请求，让 stdout 读到响应时能找回对应 future。
         CompletableFuture<PiResponse> future = new CompletableFuture<>();
         PendingRequest pending = new PendingRequest(commandType, future);
         pendingRequests.put(id, pending);
+
+        //4. 挂超时定时器；超时后摘除登记并记住该 ID，使迟到响应被忽略。
         CompletableFuture.delayedExecutor(timeout.toMillis(), TimeUnit.MILLISECONDS).execute(() -> {
             if (pendingRequests.remove(id, pending)) {
                 ignoredResponseIds.add(id);
                 future.completeExceptionally(new PiRequestTimeoutException(commandType, timeout));
             }
         });
+
+        //5. 写入 stdin；写入失败立即摘除登记，避免残留。
         try {
             writeJson(body);
         } catch (RuntimeException error) {
@@ -862,7 +883,10 @@ public final class PiClient implements AutoCloseable {
     }
 
     private void startReaders() {
+        //1. 事件分发线程：串行执行监听器，保证事件顺序。
         eventDispatcher = Thread.ofVirtual().name("pi-rpc-events").start(this::dispatchEvents);
+
+        //2. stdout 读取线程：逐行解析 JSONL；解析失败视为协议错误并终止子进程。
         Thread.ofVirtual().name("pi-rpc-stdout").start(() -> {
             try {
                 StrictJsonlReader.read(process.getInputStream(), config.maxJsonLineBytes(), this::handleLine);
@@ -874,6 +898,7 @@ public final class PiClient implements AutoCloseable {
             }
         });
 
+        //3. stderr 读取线程：必须持续排空，否则 PI 写满管道会阻塞；同时保留诊断快照。
         Thread.ofVirtual().name("pi-rpc-stderr").start(() -> {
             try (InputStreamReader reader = new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8)) {
                 char[] buffer = new char[2048];
@@ -894,6 +919,7 @@ public final class PiClient implements AutoCloseable {
             }
         });
 
+        //4. 子进程退出回调：完成 onExit()；非主动关闭时让所有未来请求失败。
         process.onExit().thenAccept(exited -> {
             exitFuture.complete(new PiProcessExit(exited.exitValue(), closed.get(), stderr()));
             if (!closed.get()) {
@@ -903,6 +929,7 @@ public final class PiClient implements AutoCloseable {
     }
 
     private void dispatchEvents() {
+        //1. 即使已关闭也排空缓冲区，保证已入队事件不丢。
         while (!closed.get() || !eventBuffer.isEmpty()) {
             final PiEvent event;
             try {
@@ -914,6 +941,7 @@ public final class PiClient implements AutoCloseable {
                 Thread.currentThread().interrupt();
                 return;
             }
+            //2. 顺序交给所有事件监听器；单个监听器异常被隔离，不影响分发。
             for (Consumer<PiEvent> listener : eventListeners) {
                 try {
                     listener.accept(event);
@@ -921,6 +949,7 @@ public final class PiClient implements AutoCloseable {
                     reportListenerError(error);
                 }
             }
+            //3. Extension UI 请求额外分发给专用监听器，便于宿主用同步方式回复。
             if (event.is("extension_ui_request")) {
                 PiExtensionUiRequest request = PiExtensionUiRequest.from(event.raw());
                 for (Consumer<PiExtensionUiRequest> listener : extensionUiListeners) {
@@ -935,6 +964,7 @@ public final class PiClient implements AutoCloseable {
     }
 
     private void handleLine(String line) {
+        //1. 解析为 JSON 对象；非法 JSON 或非对象均视为协议错误。
         final JsonNode message;
         try {
             message = mapper.readTree(line);
@@ -949,6 +979,7 @@ public final class PiClient implements AutoCloseable {
         }
 
         String type = message.path("type").asText();
+        //2. response 走请求-响应通道，其余均作为事件处理。
         if ("response".equals(type)) {
             handleResponse(message);
             return;
@@ -956,6 +987,7 @@ public final class PiClient implements AutoCloseable {
 
         PiEvent event = new PiEvent(type.isBlank() ? "unknown" : type, message);
 
+        //3. 先完成当前运行的两阶段句柄（agent_settled 才算真正稳定），再广播事件。
         if (event.is("agent_settled")) {
             CompletableFuture<PiEvent> settled = activeRun.getAndSet(null);
             if (settled != null) {
@@ -966,6 +998,7 @@ public final class PiClient implements AutoCloseable {
     }
 
     private void enqueueEvent(PiEvent event) {
+        //1. 按配置的溢出策略入队；除 BLOCK 外都不会阻塞协议读取线程。
         try {
             switch (config.eventOverflowStrategy()) {
                 case BLOCK -> eventBuffer.put(event);
@@ -977,6 +1010,7 @@ public final class PiClient implements AutoCloseable {
                     }
                 }
                 case FAIL -> {
+                    //2. FAIL 策略把「缓冲区满」视为致命错误，失败客户端并终止子进程。
                     if (!eventBuffer.offer(event)) {
                         PiProtocolException error = new PiProtocolException("PI 事件缓冲区已满");
                         fail(error);
@@ -992,6 +1026,7 @@ public final class PiClient implements AutoCloseable {
     }
 
     private void handleResponse(JsonNode message) {
+        //1. 按 id 找回待完成请求；找不到时区分「已超时被忽略」与真正的协议错误。
         String id = message.path("id").asText();
         PendingRequest pending = pendingRequests.remove(id);
         if (pending == null) {
@@ -1002,11 +1037,13 @@ public final class PiClient implements AutoCloseable {
             return;
         }
         String responseCommand = message.path("command").asText();
+        //2. 校验响应 command 与请求登记的一致，避免响应错配污染结果。
         if (!pending.command().equals(responseCommand)) {
             pending.future().completeExceptionally(new PiProtocolException(
                     "PI RPC 响应命令不匹配，期望 " + pending.command() + "，实际 " + responseCommand));
             return;
         }
+        //3. success=false 映射为 PiRpcException，携带服务端错误文案。
         if (!message.path("success").asBoolean(false)) {
             pending.future().completeExceptionally(new PiRpcException(
                     responseCommand,
@@ -1014,6 +1051,7 @@ public final class PiClient implements AutoCloseable {
             ));
             return;
         }
+        //4. 正常完成：暴露解析后的 data 与完整原始 JSON。
         pending.future().complete(new PiResponse(id, responseCommand, message.get("data"), message));
     }
 
@@ -1073,17 +1111,24 @@ public final class PiClient implements AutoCloseable {
      */
     @Override
     public void close() {
+        //1. CAS 保证幂等：重复关闭直接返回。
         if (!closed.compareAndSet(false, true)) {
             return;
         }
+
+        //2. 让所有未完成请求以「已关闭」异常完成，避免调用方永久挂起。
         PiProcessException closedError = new PiProcessException("PI 客户端已关闭", null, stderr());
         fail(closedError);
+
+        //3. 关闭 stdin 促使 PI 正常退出，再请求终止子进程。
         try {
             stdin.close();
         } catch (IOException ignored) {
             // 进程可能已经关闭了管道。
         }
         process.destroy();
+
+        //4. 等待优雅退出；超过关闭超时则强制终止。
         Duration timeout = config.shutdownTimeout();
         try {
             if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
@@ -1094,6 +1139,8 @@ public final class PiClient implements AutoCloseable {
             Thread.currentThread().interrupt();
             process.destroyForcibly();
         }
+
+        //5. 清理监听器与缓冲区，并中断事件分发线程。
         eventListeners.clear();
         extensionUiListeners.clear();
         eventBuffer.clear();

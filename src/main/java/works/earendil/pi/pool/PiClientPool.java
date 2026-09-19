@@ -64,10 +64,12 @@ public final class PiClientPool implements AutoCloseable {
      * @throws IllegalStateException 当池已达到容量限制时
      */
     public Entry create() throws IOException {
+        //1. 持生命周期锁检查容量，避免并发创建越界。
         synchronized (lifecycleLock) {
             if (clients.size() >= maxClients) {
                 throw new IllegalStateException("PI 客户端数量已达到限制: " + maxClients);
             }
+            //2. 启动客户端并登记到池。
             PiClient client = factory.start();
             String id = UUID.randomUUID().toString();
             clients.put(id, client);
@@ -84,7 +86,9 @@ public final class PiClientPool implements AutoCloseable {
      * @throws IllegalArgumentException 当 ID 不存在时
      */
     public PiClient getOrRecover(String id) throws IOException {
+        //1. 先确认条目存在。
         PiClient current = require(id);
+        //2. 进程还活着就直接返回；否则用同一池 ID 换一个新实例。
         if (current.isAlive()) {
             return current;
         }
@@ -101,10 +105,12 @@ public final class PiClientPool implements AutoCloseable {
      */
     public PiClient recover(String id) throws IOException {
         synchronized (lifecycleLock) {
+            //1. 持锁并再次确认原客户端确实已退出，避免重复替换。
             PiClient previous = require(id);
             if (previous.isAlive()) {
                 return previous;
             }
+            //2. 先启动替代实例并顶替同一 ID，再关闭旧实例，避免窗口期出现「无可用客户端」。
             PiClient replacement = factory.start();
             clients.put(id, replacement);
             previous.close();

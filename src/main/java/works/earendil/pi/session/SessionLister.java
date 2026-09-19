@@ -70,10 +70,12 @@ public final class SessionLister {
      * @return 默认会话目录
      */
     public static Path defaultSessionDir() {
+        //1. 优先用 PI_CODING_AGENT_DIR；未设置时回退到 ~/.pi/agent。
         String env = System.getenv("PI_CODING_AGENT_DIR");
         Path agentDir = env != null && !env.isBlank()
                 ? Path.of(expandTilde(env))
                 : Path.of(System.getProperty("user.home"), ".pi", "agent");
+        //2. 会话固定放在该 agent 目录下的 sessions 子目录。
         return agentDir.resolve("sessions");
     }
 
@@ -97,15 +99,20 @@ public final class SessionLister {
      */
     public static List<SessionFile> list(Path sessionDir) throws IOException {
         Objects.requireNonNull(sessionDir, "sessionDir");
+        //1. 目录不存在视为「没有会话」，返回空列表而不是报错。
         if (!Files.isDirectory(sessionDir)) {
             return List.of();
         }
+
+        //2. 递归收集目录下所有 .jsonl 文件。
         List<Path> files = new ArrayList<>();
         try (Stream<Path> stream = Files.walk(sessionDir)) {
             stream.filter(Files::isRegularFile)
                     .filter(path -> path.getFileName().toString().endsWith(".jsonl"))
                     .forEach(files::add);
         }
+
+        //3. 读取每个文件的最后修改时间与字节数。
         List<SessionFile> result = new ArrayList<>(files.size());
         for (Path file : files) {
             result.add(new SessionFile(
@@ -114,6 +121,8 @@ public final class SessionLister {
                     Files.size(file)
             ));
         }
+
+        //4. 按修改时间倒序，最近的会话排在最前。
         result.sort(Comparator.comparing(SessionFile::lastModified).reversed());
         return List.copyOf(result);
     }
@@ -149,6 +158,8 @@ public final class SessionLister {
      */
     public static SessionSummary peek(Path sessionFile) throws IOException {
         Objects.requireNonNull(sessionFile, "sessionFile");
+
+        //1. 会话头部字段与累计统计。
         String sessionId = null;
         int version = 0;
         String cwd = null;
@@ -161,6 +172,7 @@ public final class SessionLister {
         try (BufferedReader reader = Files.newBufferedReader(sessionFile, StandardCharsets.UTF_8)) {
             String line;
             while ((line = reader.readLine()) != null) {
+                //2. 空行和非法 JSON 行跳过，不让单行损坏中断整体统计。
                 if (line.isBlank()) {
                     continue;
                 }
@@ -173,6 +185,8 @@ public final class SessionLister {
                 if (node == null || !node.isObject()) {
                     continue;
                 }
+
+                //3. 首行若为 session 头，则提取元数据且不计入条目数。
                 if (first && "session".equals(node.path("type").asText())) {
                     sessionId = text(node, "id");
                     version = node.path("version").asInt(0);
@@ -181,6 +195,8 @@ public final class SessionLister {
                     first = false;
                     continue;
                 }
+
+                //4. 其余行按条目统计；message 条目额外提取角色与文本。
                 first = false;
                 entryCount++;
                 JsonNode message = node.get("message");
@@ -196,6 +212,8 @@ public final class SessionLister {
                 }
             }
         }
+
+        //5. 组装摘要返回。
         return new SessionSummary(sessionId, version, cwd, timestamp, entryCount, messageCount, lastText);
     }
 
@@ -219,9 +237,11 @@ public final class SessionLister {
         if (content == null) {
             return null;
         }
+        //1. content 为裸字符串时直接返回。
         if (content.isTextual()) {
             return content.textValue();
         }
+        //2. content 为数组时，拼接全部 text 类型块（忽略图片等其它块）。
         if (content.isArray()) {
             StringBuilder builder = new StringBuilder();
             for (JsonNode block : content) {

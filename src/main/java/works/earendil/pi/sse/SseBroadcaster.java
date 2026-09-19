@@ -93,9 +93,12 @@ public final class SseBroadcaster implements AutoCloseable {
         if (closed.get()) {
             return;
         }
+
+        //1. 规范化并编码为帧；事件序号在映射时分配。
         SseEvent mapped = eventMapper.map(event);
         Frame frame = new Frame(mapped.seq(), encoder.encode(mapped));
 
+        //2. 持锁更新重放缓冲，并快照连接列表，避免遍历时被并发修改。
         List<Connection> targets;
         synchronized (lock) {
             if (closed.get()) {
@@ -109,6 +112,8 @@ public final class SseBroadcaster implements AutoCloseable {
             }
             targets = new ArrayList<>(connections.values());
         }
+
+        //3. 锁外扇出：入队均为非阻塞，慢消费者只影响自己的连接。
         for (Connection connection : targets) {
             connection.offer(frame);
         }
@@ -137,10 +142,13 @@ public final class SseBroadcaster implements AutoCloseable {
      */
     public String add(SseConnection connection, long lastEventId) {
         Objects.requireNonNull(connection, "connection");
+        //1. 快速失败检查；锁内会再查一次，避开关闭竞争窗口。
         if (closed.get()) {
             throw new IllegalStateException("SSE 广播器已关闭");
         }
         Connection created = new Connection(UUID.randomUUID().toString(), connection);
+
+        //2. 持锁先回放缓冲帧，再登记连接，保证回放帧排在后续新帧之前。
         synchronized (lock) {
             if (closed.get()) {
                 throw new IllegalStateException("SSE 广播器已关闭");
@@ -154,6 +162,8 @@ public final class SseBroadcaster implements AutoCloseable {
             }
             connections.put(created.id, created);
         }
+
+        //3. 启动连接线程开始投递。
         created.start();
         return created.id;
     }
@@ -185,18 +195,25 @@ public final class SseBroadcaster implements AutoCloseable {
     /** 取消订阅并关闭全部连接；重复调用安全。 */
     @Override
     public void close() {
+        //1. CAS 保证幂等。
         if (!closed.compareAndSet(false, true)) {
             return;
         }
+
+        //2. 先退订，停止产生新帧。
         if (subscription != null) {
             subscription.close();
         }
+
+        //3. 持锁取出全部连接并清空重放缓冲。
         List<Connection> all;
         synchronized (lock) {
             all = new ArrayList<>(connections.values());
             connections.clear();
             replay.clear();
         }
+
+        //4. 锁外逐个关闭，避免持锁期间阻塞在连接关闭上。
         for (Connection connection : all) {
             connection.close();
         }
@@ -220,10 +237,12 @@ public final class SseBroadcaster implements AutoCloseable {
         }
 
         private void offer(Frame frame) {
+            //1. 已关闭的连接直接丢弃，避免向已释放的队列写入。
             if (connectionClosed.get()) {
                 return;
             }
             String text = frame.text();
+            //2. 按溢出策略入队；除 CLOSE 策略外都不会阻塞调用方（即 SDK 事件分发线程）。
             switch (overflowStrategy) {
                 case DROP_OLDEST -> {
                     if (!queue.offer(text)) {
@@ -243,6 +262,7 @@ public final class SseBroadcaster implements AutoCloseable {
         private void run() {
             try {
                 while (!connectionClosed.get()) {
+                    //1. 有事件就取事件；超过心跳间隔仍空闲则改发心跳。
                     String frame;
                     if (heartbeatMillis == 0) {
                         frame = queue.take();
@@ -252,6 +272,7 @@ public final class SseBroadcaster implements AutoCloseable {
                             frame = encoder.heartbeat();
                         }
                     }
+                    //2. 真正写失败才能被察觉，因此心跳同时兼任断连探测。
                     target.send(frame);
                 }
             } catch (InterruptedException interrupted) {
@@ -259,6 +280,7 @@ public final class SseBroadcaster implements AutoCloseable {
             } catch (IOException | RuntimeException failure) {
                 // 连接断开或写入失败，由 finally 清理
             } finally {
+                //3. 无论正常还是异常退出，都摘除注册并释放连接。
                 connections.remove(id, this);
                 close();
             }
@@ -268,6 +290,7 @@ public final class SseBroadcaster implements AutoCloseable {
             if (!connectionClosed.compareAndSet(false, true)) {
                 return;
             }
+            // 中断连接线程；自身调用时跳过，否则会打断 finally 清理。
             Thread current = worker;
             if (current != null && current != Thread.currentThread()) {
                 current.interrupt();

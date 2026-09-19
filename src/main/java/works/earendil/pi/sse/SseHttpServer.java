@@ -165,32 +165,43 @@ public final class SseHttpServer implements AutoCloseable {
          * @throws IOException 当端口绑定失败时
          */
         public SseHttpServer start() throws IOException {
+            //1. 创建服务并绑定端口；每个请求用一条虚拟线程处理。
             HttpServer http = HttpServer.create(new InetSocketAddress(port), 0);
             http.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+
+            //2. 事件流端点始终注册。
             http.createContext(eventsPath, this::handleEvents);
 
+            //3. Extension UI 端点仅在有回复处理器时注册。
             String effectiveExtensionUiPath = null;
             if (extensionUiResponder != null) {
                 http.createContext(extensionUiPath, this::handleExtensionUi);
                 effectiveExtensionUiPath = extensionUiPath;
             }
+
+            //4. 启动并返回适配器。
             http.start();
             return new SseHttpServer(http, eventsPath, effectiveExtensionUiPath);
         }
 
         private void handleEvents(HttpExchange exchange) throws IOException {
+            //1. 事件流只接受 GET。
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1);
                 exchange.close();
                 return;
             }
+
+            //2. 写 SSE 必需响应头；禁用缓存与反向代理缓冲，否则事件会被攒住不发。
             var headers = exchange.getResponseHeaders();
             headers.add("Content-Type", "text/event-stream; charset=utf-8");
             headers.add("Cache-Control", "no-cache");
             headers.add("Connection", "keep-alive");
             headers.add("X-Accel-Buffering", "no");
+            // 长度 0 表示分块传输，连接会一直保持到客户端断开。
             exchange.sendResponseHeaders(200, 0);
 
+            //3. 注册连接（可按 Last-Event-ID 重放），然后阻塞等待连接结束。
             JdkConnection connection = new JdkConnection(exchange.getResponseBody());
             broadcaster.add(connection, parseLastEventId(exchange));
             try {
@@ -198,16 +209,20 @@ public final class SseHttpServer implements AutoCloseable {
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
             } finally {
+                //4. 请求线程退出前释放连接，让广播器摘除注册。
                 connection.close();
             }
         }
 
         private void handleExtensionUi(HttpExchange exchange) throws IOException {
+            //1. 回复入口只接受 POST。
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1);
                 exchange.close();
                 return;
             }
+
+            //2. 解析 JSON 请求体；非法 JSON 直接返回 400。
             JsonNode body;
             try (var input = exchange.getRequestBody()) {
                 body = mapper.readTree(input);
@@ -216,17 +231,21 @@ public final class SseHttpServer implements AutoCloseable {
                 exchange.close();
                 return;
             }
+
+            //3. 交给处理器，成功无响应体。
             extensionUiResponder.accept(body);
             exchange.sendResponseHeaders(204, -1);
             exchange.close();
         }
 
         private static long parseLastEventId(HttpExchange exchange) {
+            //1. 优先读 Last-Event-ID 请求头。
             String header = exchange.getRequestHeaders().getFirst("Last-Event-ID");
             Long value = parseLong(header);
             if (value != null) {
                 return value;
             }
+            //2. 回退到 ?lastEventId= 查询参数（浏览器 EventSource 无法自定义请求头）。
             String query = exchange.getRequestURI().getQuery();
             if (query != null) {
                 for (String part : query.split("&")) {
@@ -238,6 +257,7 @@ public final class SseHttpServer implements AutoCloseable {
                     }
                 }
             }
+            //3. 都取不到时从 0 开始，即不回放。
             return 0L;
         }
 
@@ -264,10 +284,12 @@ public final class SseHttpServer implements AutoCloseable {
 
         @Override
         public void send(String frame) throws IOException {
+            // 关闭后写入视为失败，广播器据此摘除连接。
             if (!open.get()) {
                 throw new IOException("SSE 连接已关闭");
             }
             output.write(frame.getBytes(StandardCharsets.UTF_8));
+            // 立即 flush，否则事件会留在缓冲区里不能让客户端及时收到。
             output.flush();
         }
 

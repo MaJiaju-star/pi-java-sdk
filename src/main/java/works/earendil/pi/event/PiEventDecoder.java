@@ -13,8 +13,10 @@ final class PiEventDecoder {
     }
 
     static PiTypedEvent decode(PiEvent event, ObjectMapper mapper) {
+        //1. 取出原始 JSON 并解析协议事件类型；未知类型归入 UNKNOWN。
         JsonNode raw = event.raw();
         PiEventType type = PiEventType.fromWireValue(event.type());
+        //2. 按类型分派到强类型 record；SDK 未建模的字段一律保留原始 JsonNode。
         return switch (type) {
             case AGENT_START, AGENT_SETTLED, TURN_START, SUMMARIZATION_RETRY_FINISHED ->
                     new PiTypedEvent.Marker(type, raw);
@@ -67,6 +69,7 @@ final class PiEventDecoder {
     }
 
     private static PiTypedEvent.MessageUpdate messageUpdate(JsonNode raw, ObjectMapper mapper) {
+        //1. message_update 的增量信息在 assistantMessageEvent 子树中。
         JsonNode value = raw.path("assistantMessageEvent");
         PiTypedEvent.AssistantMessageEvent update = new PiTypedEvent.AssistantMessageEvent(
                 text(value, "type"),
@@ -77,6 +80,7 @@ final class PiEventDecoder {
                 text(value, "toolName"),
                 value.get("toolCall")
         );
+        //2. 顶层 usage 为累计用量，缺失或为 null 时置空。
         return new PiTypedEvent.MessageUpdate(
                 convertNullable(mapper, raw.get("usage"), PiRpcTypes.Usage.class), update, raw);
     }
