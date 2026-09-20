@@ -65,3 +65,4 @@ mvn -DskipTests package  # 跳过测试打包
 5. **平台差异与 PI 路径**：Windows 默认启动 `pi.cmd`，macOS/Linux 默认 `pi`；两者都是**裸名**，靠 `PATH` 解析，所以默认无需配置路径。但 Windows 的 `CreateProcess` **不做 `PATHEXT` 补全**，`executable("pi")` 会直接失败（必须写 `pi.cmd`）；`PATH` 不可靠的环境（IDE/Windows 服务/Docker/CI）需显式配绝对路径或 `command(List.of("node", "<cli.js 路径>"))`。详见 `docs/02` 的「PI 可执行文件路径解析」。
 6. **反压**：事件缓冲（`eventBufferCapacity`）+ 溢出策略（`PiEventOverflowStrategy`），慢消费者可能触发丢弃或阻塞。
 7. 未识别的新版本 PI 事件仍以原始 `JsonNode` 交付，事件解码要向前兼容。
+8. **stderr 解码与 stdout 相反**：stdout 走 `StrictJsonlReader`，严格 UTF-8，非法字节抛 `PiProtocolException`；stderr 走 `StderrDecoder`，UTF-8 失败时回退到原生字符集并保持该选择。回退字符集取自 `native.encoding` / `sun.jnu.encoding`，**不要用 `Charset.defaultCharset()`**——JEP 400 后它恒为 UTF-8，中文 Windows 上拿不到 GBK。新增读取子进程输出的代码要沿用这个策略，别直接 `new InputStreamReader(stream, StandardCharsets.UTF_8)`。

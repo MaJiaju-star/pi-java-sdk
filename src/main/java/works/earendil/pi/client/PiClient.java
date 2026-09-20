@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.BufferedWriter;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -899,19 +899,17 @@ public final class PiClient implements AutoCloseable {
         });
 
         //3. stderr 读取线程：必须持续排空，否则 PI 写满管道会阻塞；同时保留诊断快照。
+        //   按原始字节读取再做容错解码，避免子进程输出非 UTF-8（中文 Windows 上的 GBK）时静默变成乱码。
         Thread.ofVirtual().name("pi-rpc-stderr").start(() -> {
-            try (InputStreamReader reader = new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8)) {
-                char[] buffer = new char[2048];
+            StderrDecoder decoder = new StderrDecoder();
+            byte[] buffer = new byte[2048];
+            try (InputStream stream = process.getErrorStream()) {
                 int read;
-                while ((read = reader.read(buffer)) != -1) {
-                    String chunk = new String(buffer, 0, read);
-                    captureStderr(chunk);
-                    try {
-                        config.stderrConsumer().accept(chunk);
-                    } catch (Throwable error) {
-                        reportListenerError(error);
-                    }
+                while ((read = stream.read(buffer)) != -1) {
+                    publishStderr(decoder.decode(buffer, read));
                 }
+                //流结束后冲刷暂存字节，避免丢失末尾一个未结束的多字节序列。
+                publishStderr(decoder.flush());
             } catch (IOException error) {
                 if (!closed.get()) {
                     reportListenerError(error);
@@ -1068,6 +1066,18 @@ public final class PiClient implements AutoCloseable {
             PiProcessException processError = new PiProcessException("写入 PI RPC stdin 失败", null, stderr());
             fail(processError);
             throw processError;
+        }
+    }
+
+    private void publishStderr(String chunk) {
+        if (chunk.isEmpty()) {
+            return;
+        }
+        captureStderr(chunk);
+        try {
+            config.stderrConsumer().accept(chunk);
+        } catch (Throwable error) {
+            reportListenerError(error);
         }
     }
 

@@ -7,13 +7,26 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 public final class FakePiProcess {
+    /** 启动参数：向 stderr 写入非 UTF-8 字节，用于验证容错解码。 */
+    static final String GBK_STDERR_FLAG = "--gbk-stderr";
+    /** 以 GBK 写入 stderr 的文本；测试用它断言解码结果可读。 */
+    static final String GBK_STDERR_TEXT = "警告：检测到 localhost 代理配置";
+
     private FakePiProcess() {
     }
 
     public static void main(String[] args) throws Exception {
+        if (Arrays.asList(args).contains(GBK_STDERR_FLAG)) {
+            // 直接写原始字节：绕过 PrintStream 的编码器，模拟中文 Windows 上输出 GBK 的子进程。
+            System.err.write(GBK_STDERR_TEXT.getBytes(Charset.forName("GBK")));
+            System.err.write('\n');
+            System.err.flush();
+        }
         ObjectMapper mapper = new ObjectMapper();
         try (BufferedReader input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
              BufferedWriter output = new BufferedWriter(new OutputStreamWriter(System.out, StandardCharsets.UTF_8))) {

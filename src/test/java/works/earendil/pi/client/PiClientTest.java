@@ -4,9 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
@@ -86,26 +89,64 @@ class PiClientTest {
         }
     }
 
+    @Test
+    void decodesNonUtf8StderrIntoReadableText() throws Exception {
+        assumeTrue(Charset.isSupported("GBK"), "本测试需要 GBK 字符集");
+
+        try (PiClient client = PiClient.start(fakeConfig(FakePiProcess.GBK_STDERR_FLAG))) {
+            client.getState().get(5, TimeUnit.SECONDS);
+
+            assertTrue(awaitStderr(client, FakePiProcess.GBK_STDERR_TEXT),
+                    () -> "stderr 未按原生字符集解码，实际内容: " + escape(client.stderr()));
+        }
+    }
+
+    private static boolean awaitStderr(PiClient client, String expected) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline) {
+            if (client.stderr().contains(expected)) {
+                return true;
+            }
+            Thread.sleep(20);
+        }
+        return false;
+    }
+
+    /** 把控制字符与替换字符转义，便于在断言失败时看清实际解码结果。 */
+    private static String escape(String value) {
+        StringBuilder text = new StringBuilder();
+        value.codePoints().forEach(code -> {
+            if (code < 0x20 || code == 0xFFFD) {
+                text.append(String.format("\\u%04x", code));
+            } else {
+                text.appendCodePoint(code);
+            }
+        });
+        return text.toString();
+    }
+
     private static PiClient startFakeClient() throws Exception {
         return PiClient.start(fakeConfig());
     }
 
-    private static PiClientConfig fakeConfig() {
+    private static PiClientConfig fakeConfig(String... processArguments) {
         String javaExecutable = Path.of(
                 System.getProperty("java.home"),
                 "bin",
                 System.getProperty("os.name", "").toLowerCase().contains("win") ? "java.exe" : "java"
         ).toString();
+        List<String> command = new ArrayList<>(List.of(
+                javaExecutable,
+                "-Xms16m",
+                "-Xmx64m",
+                "-XX:+UseSerialGC",
+                "-cp",
+                System.getProperty("java.class.path"),
+                FakePiProcess.class.getName()
+        ));
+        command.addAll(List.of(processArguments));
         return PiClientConfig.builder()
-                .command(List.of(
-                        javaExecutable,
-                        "-Xms16m",
-                        "-Xmx64m",
-                        "-XX:+UseSerialGC",
-                        "-cp",
-                        System.getProperty("java.class.path"),
-                        FakePiProcess.class.getName()
-                ))
+                .command(command)
                 .startupTimeout(Duration.ofSeconds(5))
                 .build();
     }

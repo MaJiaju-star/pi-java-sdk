@@ -178,7 +178,7 @@ PiClientConfig config = PiClientConfig.builder()
 - `PiRpcException`：PI 返回 `success: false`。
 - `PiProcessException`：进程启动失败、异常退出或 stdin 写入失败。
 - `PiProtocolException`：stdout 出现非法 UTF-8、JSON 或不匹配的响应。
-- stderr 会被独立虚拟线程持续读取，避免管道阻塞；默认保留最后 64 KiB 字符。
+- stderr 会被独立虚拟线程持续读取，避免管道阻塞；默认保留最后 64 KiB 字符。解码先试严格 UTF-8，失败时回退到操作系统原生字符集（中文 Windows 上为 GBK），因此子进程输出 GBK 时仍保持可读。
 - `close()` 先关闭 stdin 并请求终止，超时后强制结束子进程。
 
 ## 安全说明
