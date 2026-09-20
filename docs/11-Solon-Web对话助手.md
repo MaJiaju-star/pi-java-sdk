@@ -53,6 +53,10 @@ java -jar pi-solon-assistant/target/pi-solon-assistant.jar --server.port=9090
 | `PI_MAX_TEXT_FILE_BYTES` | `2097152` | 文本读写接口单文件上限 |
 | `PI_MAX_TREE_ENTRIES` | `5000` | 单次文件树查询最大节点数 |
 
+> `PI_EXECUTABLE` 的默认值与 SDK 的 `defaultPiExecutable()` 一致，都是**裸可执行文件名**，由 `PATH` 解析。
+> 服务化部署（systemd / Windows 服务 / 容器）下 `PATH` 往往与登录 shell 不同，建议直接填绝对路径；
+> Windows 上必须带 `.cmd` 后缀。详见 [02-客户端配置与生命周期 — PI 可执行文件路径解析](02-客户端配置与生命周期.md#pi-可执行文件路径解析)。
+
 ## 对话 API
 
 所有接口按 `X-User-Id` 区分数据。开发模式缺少该请求头时使用 `anonymous`。本机默认模式会共享本机 PI 认证配置，因此不构成安全的多租户边界。

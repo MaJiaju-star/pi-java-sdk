@@ -11,7 +11,9 @@
 - 已安装 PI CLI，或者能够提供 PI CLI 的 Node.js 启动命令
 - 已通过 PI 配置模型凭据
 
-Windows 默认启动 `pi.cmd`，macOS 和 Linux 默认启动 `pi`。
+Windows 默认启动 `pi.cmd`，macOS 和 Linux 默认启动 `pi`，两者都交由 `PATH` 解析，因此通常无需配置路径。
+
+注意 Windows 上必须带 `.cmd` 后缀（`ProcessBuilder` 不做 `PATHEXT` 补全）；`PATH` 不可靠的部署环境（服务、Docker、CI）应显式配置绝对路径。详见 [`docs/02-客户端配置与生命周期.md`](docs/02-客户端配置与生命周期.md#pi-可执行文件路径解析)。
 
 ## 引入依赖
 
